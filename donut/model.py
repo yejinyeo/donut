@@ -24,6 +24,9 @@ from transformers.file_utils import ModelOutput
 from transformers.modeling_utils import PretrainedConfig, PreTrainedModel
 
 
+# class1) Donut model의 encoder:
+# input image를 입력받아 그에 대한 피처 맵(embedding) 생성
+# `timm` 라이브러리에서 제공하는 사전 학습된 swin transformer 모델 기반으로 초기화됨. 이후 Donut model에 맞게 수정됨.
 class SwinEncoder(nn.Module):
     r"""
     Donut encoder based on SwinTransformer
@@ -39,6 +42,7 @@ class SwinEncoder(nn.Module):
                       otherwise, `swin_base_patch4_window12_384` will be set (using `timm`).
     """
 
+    # Swin Transformer의 설정 및 초기화, 사전 학습된 가중치 로드
     def __init__(
         self,
         input_size: List[int],
@@ -92,6 +96,7 @@ class SwinEncoder(nn.Module):
                     new_swin_state_dict[x] = swin_state_dict[x]
             self.model.load_state_dict(new_swin_state_dict)
 
+    # image data를 swin transformer를 통해 처리하여 피쳐 맵 반환함.
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
@@ -102,6 +107,7 @@ class SwinEncoder(nn.Module):
         x = self.model.layers(x)
         return x
 
+    # 이미지를 지정된 크기로 리사이즈하고 패딩하는 등 전처리 과정을 수행함.
     def prepare_input(self, img: PIL.Image.Image, random_padding: bool = False) -> torch.Tensor:
         """
         Convert PIL Image to tensor according to specified input_size after following steps below:
@@ -134,6 +140,10 @@ class SwinEncoder(nn.Module):
         return self.to_tensor(ImageOps.expand(img, padding))
 
 
+# class2) Donut model의 decoder:
+# BART를 기반으로 한 텍스트 생성 모델
+# Multilingual BART(MBART) 모델을 기반으로 함.
+# 이미지로부터 얻어진 피처 맵을 이용해 텍스트(ex: JSON 형식의 구조화된 데이터) 생성
 class BARTDecoder(nn.Module):
     """
     Donut Decoder based on Multilingual BART
@@ -150,6 +160,7 @@ class BARTDecoder(nn.Module):
             otherwise, `hyunwoongko/asian-bart-ecjk` will be set (using `transformers`)
     """
 
+    # MBART 모델을 초기화, 사전 학습된 가중치 로드
     def __init__(
         self, decoder_layer: int, max_position_embeddings: int, name_or_path: Union[str, bytes, os.PathLike] = None
     ):
@@ -199,6 +210,7 @@ class BARTDecoder(nn.Module):
                     new_bart_state_dict[x] = bart_state_dict[x]
             self.model.load_state_dict(new_bart_state_dict)
 
+    # decoder에 특수 토큰 추가
     def add_special_tokens(self, list_of_tokens: List[str]):
         """
         Add special tokens to tokenizer and resize the token embeddings
@@ -207,6 +219,7 @@ class BARTDecoder(nn.Module):
         if newly_added_num > 0:
             self.model.resize_token_embeddings(len(self.tokenizer))
 
+    # 추론을 위한 input data 준비
     def prepare_inputs_for_inference(self, input_ids: torch.Tensor, encoder_outputs: torch.Tensor, past_key_values=None, past=None, use_cache: bool = None, attention_mask: torch.Tensor = None):
         """
         Args:
@@ -231,6 +244,7 @@ class BARTDecoder(nn.Module):
         }
         return output
 
+    # decoder의 순방향 패스 정의, 주어진 피처 맵을 이용해 text 생성
     def forward(
         self,
         input_ids,
@@ -297,6 +311,7 @@ class BARTDecoder(nn.Module):
             cross_attentions=outputs.cross_attentions,
         )
 
+    # 위치 임베딩을 최대 시퀀스 길이에 맞게 resize
     @staticmethod
     def resize_bart_abs_pos_emb(weight: torch.Tensor, max_length: int) -> torch.Tensor:
         """
@@ -319,7 +334,8 @@ class BARTDecoder(nn.Module):
             )
         return weight
 
-
+# class3) Donut model의 설정을 저장하는 class:
+# 모델의 아키텍처, 입력 이미지 크기, 윈도우 크기, 인코더와 디코더의 레이어 수, 최대 위치 임베딩 길이 등의 설정을 관리함.
 class DonutConfig(PretrainedConfig):
     r"""
     This is the configuration class to store the configuration of a [`DonutModel`]. It is used to
@@ -370,6 +386,8 @@ class DonutConfig(PretrainedConfig):
         self.name_or_path = name_or_path
 
 
+# class4) Donut model의 전체 아키텍처를 정의하는 class:
+# Swin Transformer를 기반으로 한 인코더와 BART 기반의 디코더를 결합하여 이미지를 입력받아 구조화된 텍스트를 생성
 class DonutModel(PreTrainedModel):
     r"""
     Donut: an E2E OCR-free Document Understanding Transformer.
@@ -380,6 +398,7 @@ class DonutModel(PreTrainedModel):
     config_class = DonutConfig
     base_model_prefix = "donut"
 
+    # Donut model의 encoder와 decoder 초기화
     def __init__(self, config: DonutConfig):
         super().__init__(config)
         self.config = config
@@ -396,6 +415,7 @@ class DonutModel(PreTrainedModel):
             name_or_path=self.config.name_or_path,
         )
 
+    # input image와 원하는 token sequence를 받아 model을 훈련시키기 위한 손실 계산
     def forward(self, image_tensors: torch.Tensor, decoder_input_ids: torch.Tensor, decoder_labels: torch.Tensor):
         """
         Calculate a loss given an input image and a desired token sequence,
@@ -414,6 +434,7 @@ class DonutModel(PreTrainedModel):
         )
         return decoder_outputs
 
+    # image와 prompt를 입력받아 자동회귀 방식으로 token sequence를 생성하고, 이를 구조화된 JSON 형식으로 변환하여 반환
     def inference(
         self,
         image: PIL.Image = None,
@@ -496,6 +517,7 @@ class DonutModel(PreTrainedModel):
 
         return output
 
+    # JSON 객체를 토큰 시퀀스로 변환
     def json2token(self, obj: Any, update_special_tokens_for_json_key: bool = True, sort_json_key: bool = True):
         """
         Convert an ordered JSON object into a token sequence
@@ -528,6 +550,7 @@ class DonutModel(PreTrainedModel):
                 obj = f"<{obj}/>"  # for categorical special tokens
             return obj
 
+    # 생성된 토큰 시퀀스를 JSON 형식으로 변환
     def token2json(self, tokens, is_inner_value=False):
         """
         Convert a (generated) token seuqnce into an ordered JSON format
@@ -579,6 +602,7 @@ class DonutModel(PreTrainedModel):
         else:
             return [] if is_inner_value else {"text_sequence": tokens}
 
+    # 사전 학습된 Donut model 로드
     @classmethod
     def from_pretrained(
         cls,
