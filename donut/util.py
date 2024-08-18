@@ -11,23 +11,27 @@ from typing import Any, Dict, List, Tuple, Union
 
 import torch
 import zss
-from datasets import load_dataset
+from datasets import load_dataset    # hugging face dataset 사용하기 위해 import
 from nltk import edit_distance
 from torch.utils.data import Dataset
 from transformers.modeling_utils import PreTrainedModel
 from zss import Node
 
 
+# 주어진 객체(`save_obj`)를 JSON 형식으로 파일(`write_path`)에 저장
 def save_json(write_path: Union[str, bytes, os.PathLike], save_obj: Any):
     with open(write_path, "w") as f:
         json.dump(save_obj, f)
 
 
+# 지정된 경로(`json_path`)에서 JSON 파일을 읽어들여, Python 객체로 변환하여 반환
 def load_json(json_path: Union[str, bytes, os.PathLike]):
     with open(json_path, "r") as f:
         return json.load(f)
 
 
+# class1) Donut model에 사용될 dataset을 처리하는 class:
+# Hugging Face `datasets` 라이브러리를 사용해 데이터를 로드하고, 모델에 입력될 수 있도록 전처리함.
 class DonutDataset(Dataset):
     """
     DonutDataset which is saved in huggingface datasets format. (see details in https://huggingface.co/docs/datasets)
@@ -40,6 +44,7 @@ class DonutDataset(Dataset):
         task_start_token: the special token to be fed to the decoder to conduct the target task
     """
 
+    # dataset load 및 초기화 작업 수행 / dataset에서 JSON 정답 데이터를 불러와 토큰화된 시퀀스 생성
     def __init__(
         self,
         dataset_name_or_path: str,
@@ -90,9 +95,11 @@ class DonutDataset(Dataset):
         self.donut_model.decoder.add_special_tokens([self.task_start_token, self.prompt_end_token])
         self.prompt_end_token_id = self.donut_model.decoder.tokenizer.convert_tokens_to_ids(self.prompt_end_token)
 
+    # dataset 길이 반환
     def __len__(self) -> int:
         return self.dataset_length
 
+    # dataset에서 특정 index의 샘플을 불러와 전처리된 이미지 텐서와 토큰화된 입력 시퀀스 반환
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Load image from image_path of given dataset_path and convert into input_tensor and labels.
@@ -135,11 +142,15 @@ class DonutDataset(Dataset):
             return input_tensor, input_ids, prompt_end_index, processed_parse
 
 
+# class2) Donut model의 예측 결과 평가
+#  JSON 형식의 예측 결과와 정답 데이터를 비교하여 정확도 및 F1 점수를 계산
+# JSON 데이터를 트리 구조로 변환하여 트리 편집 거리(Tree Edit Distance)를 계산하고, 이를 기반으로 정확도를 측정
 class JSONParseEvaluator:
     """
     Calculate n-TED(Normalized Tree Edit Distance) based accuracy and F1 accuracy score
     """
 
+    # 중첩된 JSON 데이터를 비중첩(flat) 형태로 변환
     @staticmethod
     def flatten(data: dict):
         """
@@ -175,6 +186,7 @@ class JSONParseEvaluator:
         _flatten(data)
         return flatten_data
 
+    # 트리 편집 거리 계산 시 업데이트 비용을 정의하는 함수
     @staticmethod
     def update_cost(node1: Node, node2: Node):
         """
@@ -196,6 +208,7 @@ class JSONParseEvaluator:
         else:
             return int(label1 != label2)
 
+    # 트리 편집 거리 계산 시 삽입, 삭제 비용을 정의하는 함수
     @staticmethod
     def insert_and_remove_cost(node: Node):
         """
@@ -209,6 +222,7 @@ class JSONParseEvaluator:
         else:
             return 1
 
+    # JSON 데이터를 정렬된 상태로 변환하여, 비교하기 쉽게 함
     def normalize_dict(self, data: Union[Dict, List, Any]):
         """
         Sort by value, while iterate over element if data is list
@@ -239,6 +253,7 @@ class JSONParseEvaluator:
 
         return new_data
 
+    # 예측된 JSON 데이터와 정답 JSON 데이터를 비교하여 글로벌 F1 점수를 계산
     def cal_f1(self, preds: List[dict], answers: List[dict]):
         """
         Calculate global F1 accuracy score (field-level, micro-averaged) by counting all true positives, false negatives and false positives
@@ -255,6 +270,7 @@ class JSONParseEvaluator:
             total_fn_or_fp += len(answer)
         return total_tp / (total_tp + total_fn_or_fp / 2)
 
+    #  JSON 데이터를 트리 구조로 변환
     def construct_tree_from_dict(self, data: Union[Dict, List], node_name: str = None):
         """
         Convert Dictionary into Tree
@@ -304,6 +320,7 @@ class JSONParseEvaluator:
             raise Exception(data, node_name)
         return node
 
+    # 트리 편집 거리 기반 정확도를 계산
     def cal_acc(self, pred: dict, answer: dict):
         """
         Calculate normalized tree edit distance(nTED) based accuracy.
