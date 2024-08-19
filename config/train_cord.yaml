@@ -1,22 +1,26 @@
+# CORD dataset을 사용하여 Donut model을 학습할 때 필요한 설정들을 정의한 구성 파일
+# 데이터셋 로드, 학습률, 배치 크기, 입력 이미지 크기 등 학습에 필요한 다양한 매개변수를 포함하고 있음
+
+
 resume_from_checkpoint_path: null # only used for resume_from_checkpoint option in PL
-result_path: "./result"
+result_path: "./result"           # 학습 결과를 저장할 경로
 pretrained_model_name_or_path: "naver-clova-ix/donut-base" # loading a pre-trained model (from moldehub or path)
 dataset_name_or_paths: ["naver-clova-ix/cord-v2"] # loading datasets (from moldehub or path)
-sort_json_key: False # cord dataset is preprocessed, and publicly available at https://huggingface.co/datasets/naver-clova-ix/cord-v2
-train_batch_sizes: [8]
-val_batch_sizes: [1]
-input_size: [1280, 960] # when the input resolution differs from the pre-training setting, some weights will be newly initialized (but the model training would be okay)
-max_length: 768
-align_long_axis: False
-num_nodes: 1
-seed: 2022
-lr: 3e-5
-warmup_steps: 300 # 800/8*30/10, 10%
-num_training_samples_per_epoch: 800
-max_epochs: 30
-max_steps: -1
-num_workers: 8
-val_check_interval: 1.0
-check_val_every_n_epoch: 3
-gradient_clip_val: 1.0
-verbose: True
+sort_json_key: False    # JSON 데이터를 처리할 때 키를 정렬할지 여부 / cord dataset is preprocessed, and publicly available at https://huggingface.co/datasets/naver-clova-ix/cord-v2
+train_batch_sizes: [8]  # 한 번의 훈련 스텝(step)에서 모델에 입력되는 데이터 샘플의 개수
+val_batch_sizes: [1]    # 검증(validation)시 사용할 배치 크기 지정
+input_size: [1280, 960] # 입력 이미지 크기 지정 / when the input resolution differs from the pre-training setting, some weights will be newly initialized (but the model training would be okay)
+max_length: 768         # token sequnece(=decoder의 output)의 최대 길이 (텍스트의 최대 길이로 설정됨)
+align_long_axis: False  # 이미지의 긴 축을 정렬할지 여부
+num_nodes: 1            # 학습을 수행할 노드의 수 지정 (분산 학습 시 여러 노드를 사용할 수 있지만, 여기서는 1개의 노드만 사용)
+seed: 2022              # 난수 생성의 시드를 설정 -> 실험의 재현성을 보장
+lr: 3e-5                # 학습률
+warmup_steps: 300       # 학습 초기에 학습률을 서서히 증가시키는 워밍업 단계의 스텝 수 / 800/8*30/10, 10%
+num_training_samples_per_epoch: 800    # 한 에포크(epoch) 동안 모델이 학습하는 총 데이터 샘플의 개수
+max_epochs: 30          # 학습을 수행할 최대 에포크 수
+max_steps: -1           # 학습을 수행할 최대 step 수 (-1로 설정된 경우: 지정된 epoch 수가 끝날 때까지 학습 진행)
+num_workers: 8          # 데이터 로딩을 위해 사용할 CPU 워커(worker) 수
+val_check_interval: 1.0 # 학습 중 검증을 수행할 간격 (1.0: 각 에포크가 끝날 때마다 검증 수행)
+check_val_every_n_epoch: 3  # 3 에포크마다 한 번씩 검증을 수행
+gradient_clip_val: 1.0  # 그래디언트 클리핑 값 (1.0: 그래디언트가 이 값을 초과하지 않도록 제한함. 이는 학습의 안정성을 보장함)
+verbose: True           # 학습 중 자세한 로그를 출력할지 여부
